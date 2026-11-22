@@ -1,0 +1,10 @@
+{
+  "short_name": "בגרויות 2027",
+  "name": "מערכת לימודים חכמה - בגרויות 2027",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "dir": "rtl",
+  "lang": "he"
+}
