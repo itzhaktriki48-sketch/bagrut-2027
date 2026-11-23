@@ -326,6 +326,25 @@ const INITIAL_SUBJECTS = [
   }
 ];
 
+const SEED_EXISTING = { dinim: 0, hebrew: 60, bible: 90, math: 0, english: 0, literature: null, civics: 50 };
+const SEED_SUBJECTS = INITIAL_SUBJECTS.map((x) => ({ ...x, existingMaterialPct: SEED_EXISTING[x.id], learnedMaterialPct: 0, masteryPct: 0, readinessPct: 0, chapters: [] }));
+const pctTxt = (v) => (v === null || v === undefined ? 'לא הוזן' : v + '%');
+function Progress({ value, color }) {
+  return (
+    <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div className="h-full rounded-full" style={{ width: (value || 0) + '%', background: color }} />
+    </div>
+  );
+}
+function Section({ title, children }) {
+  return (
+    <section className="bg-white rounded-2xl border border-slate-200 p-4">
+      <h3 className="font-bold mb-2">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 const TOPIC_STATUSES = [
   'טרם התחלתי',
   'בלמידה',
@@ -421,10 +440,20 @@ const SAMPLE_PRACTICE_BANK = [
   }
 ];
 
+const NAV = [
+  ['dashboard', 'בית', LayoutDashboard], ['calendar', 'לוח שנה', CalendarIcon], ['subjects', 'המקצועות שלי', BookOpen], ['files', 'חומרי לימוד', FolderOpen],
+  ['ai', 'המורה הפרטי', Bot], ['practice', 'תרגול', PenTool], ['timer', 'טיימר', Timer], ['summaries', 'סיכומים', FileText],
+  ['stats', 'סטטיסטיקות', BarChart3], ['weekly', 'סיכום שבועי', ClipboardCheck], ['settings', 'הגדרות', Settings]
+];
+
 const STORAGE_KEY = 'bagrut_2027_master_state_v1';
 
+function isoLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function getTodayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return isoLocal(new Date());
 }
 
 function daysUntilDate(dateStr) {
@@ -449,7 +478,7 @@ function formatHebrewDate(dateStr) {
 function addDaysISO(dateStr, days) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
 }
 
 export default function App() {
@@ -468,7 +497,7 @@ export default function App() {
 
   // --- נתוני המערכת המרכזיים ---
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [subjects, setSubjects] = useState(INITIAL_SUBJECTS);
+  const [subjects, setSubjects] = useState(SEED_SUBJECTS);
   const [selectedSubjectId, setSelectedSubjectId] = useState('dinim');
   const [weeklyTargetHours, setWeeklyTargetHours] = useState(8);
   const [weeklyPlan, setWeeklyPlan] = useState(INITIAL_WEEKLY_PLAN);
@@ -505,29 +534,9 @@ export default function App() {
 
   const [sessions, setSessions] = useState([]);
   const [files, setFiles] = useState([]);
-  const [summaries, setSummaries] = useState([
-    {
-      id: 'sum-1',
-      subjectId: 'bible',
-      topicTitle: 'אמצעים אמנותיים ומוטיבים מנחים',
-      type: 'סיכום קצר',
-      content: 'מילה מנחה חוזרת ומאירה נקודת מפנה או רעיון מרכזי בטקסט המקראי. יש לבסס כל טענה בציטוט והסבר.',
-      flashcards: [{ q: 'מהי מילה מנחה?', a: 'מילה או שורש החוזרים בסיפור כדי להדגיש רעיון או התפתחות.' }],
-      createdAt: getTodayISO()
-    }
-  ]);
+  const [summaries, setSummaries] = useState([]);
 
-  const [reviewQueue, setReviewQueue] = useState([
-    {
-      id: 'rev-1',
-      subjectId: 'hebrew',
-      topicTitle: 'משפט פשוט, מורכב ומאוחה',
-      dueDate: getTodayISO(),
-      intervalLabel: 'יום אחרי הלמידה',
-      reason: 'חיזוק הבסיס התחבירי',
-      completed: false
-    }
-  ]);
+  const [reviewQueue, setReviewQueue] = useState([]);
 
   const [practiceResults, setPracticeResults] = useState([]);
   const [wrongQuestions, setWrongQuestions] = useState([]);
@@ -605,7 +614,12 @@ export default function App() {
   });
   const [statusBanner, setStatusBanner] = useState(null);
 
+  const [newChapter, setNewChapter] = useState('');
+  const [newTopic, setNewTopic] = useState({});
+  const [newSummary, setNewSummary] = useState({ subjectId: 'math', topicTitle: '', content: '' });
   const fileInputRef = useRef(null);
+  const loadedRef = useRef(false);
+  const sessionStart = useRef(Date.now());
 
   const showNotice = (msg) => {
     setStatusBanner(msg);
@@ -644,6 +658,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!loadedRef.current) return;
     try {
       const payload = {
         subjects,
@@ -694,6 +709,10 @@ export default function App() {
     timerTopic,
     timerGoalMinutes
   ]);
+
+  useEffect(() => {
+    loadedRef.current = true;
+  }, []);
 
   // --- שעון חותמת זמן אמיתי לטיימר ---
   useEffect(() => {
@@ -934,7 +953,7 @@ export default function App() {
   };
 
   // --- מורה פרטי AI (מתעדף קבצים שהועלו ומציין מידע חסר) ---
-  const handleSendAiMessage = (e) => {
+  const handleSendAiMessage = async (e) => {
     e.preventDefault();
     if (!aiInput.trim()) return;
     const questionText = aiInput.trim();
@@ -950,4 +969,298 @@ export default function App() {
 
     const sourceNote = hasUploaded
       ? `הסתמכתי קודם כל על הקבצים שהעלית ב${subj.name} (${uploadedForSubject.map((f) => f.name).join(', ')}).`
-      : `טרם הועלו קבצים ייעודיים עבור ${subj.name} למאגר — ניתן להעלות סיכום או דף עבודה בלשונית "חומרי לימוד" כדי שאתעדף אותו.`;  const assistantReply = { role: 'assistant', text: `[מצב: ${aiMode} | מקצוע: ${subj.name}]\n${sourceNote}\n\nלגבי שאלתך ("${questionText}"):\n1. נתחיל בהגדרה ברורה ונקודתית של המושג.\n2. נפרק את הנושא לצעד ראשון שמתאים לרמת הידע הנוכחית שלך (${subj.knowledgeLevel}).\n3. נבדוק יחד דוגמה ק
+      : `טרם הועלו קבצים ייעודיים עבור ${subj.name} למאגר — ניתן להעלות סיכום או דף עבודה בלשונית "חומרי לימוד" כדי שאתעדף אותו.`;  const sa = subj(aiSubjectId);
+  const hasEndpoint = userProfile.aiEndpoint && userProfile.aiEndpoint.trim();
+  let reply = `[מצב: ${aiMode} | ${sa.name}] ${sourceNote}${missingWarning}`;
+  if (hasEndpoint) {
+    try {
+      const res = await fetch(userProfile.aiEndpoint.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: sa.name, mode: aiMode, level: sa.knowledgeLevel, question: questionText, uploadedFiles: uploadedForSubject.map((f) => f.name) })
+      });
+      if (!res.ok) throw new Error('שגיאת שרת ' + res.status);
+      const data = await res.json();
+      reply += '\n\n' + (data.text || 'התקבלה תשובה ריקה מהשרת.');
+    } catch (err) {
+      reply += '\n\nלא הצלחתי להתחבר למורה ה-AI: ' + err.message;
+    }
+  } else {
+    reply += '\n\nהמורה ה-AI עדיין לא מחובר לספק. יש להגדיר כתובת שרת מאובטח בהגדרות. השאלה שלך: "' + questionText + '"';
+  }
+  setAiMessages((prev) => [...prev, userMsg, { role: 'assistant', text: reply }]);
+  setAiInput('');
+  };
+
+  const subj = (id) => subjects.find((x) => x.id === id) || subjects[0];
+  const updateSubject = (id, patch) => setSubjects((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const askConfirm = (msg) => window.confirm(msg);
+
+  // --- טיימר ---
+  const startTimer = () => setTimerState({ running: true, startedAtMs: Date.now(), accumulatedMs: timerState.accumulatedMs });
+  const pauseTimer = () => setTimerState({ running: false, startedAtMs: null, accumulatedMs: elapsedMs });
+  const resetTimer = () => setTimerState({ running: false, startedAtMs: null, accumulatedMs: 0 });
+  const endTimer = () => {
+    setCompletedSessionDurationMin(Math.max(1, Math.round(elapsedMs / 60000)));
+    pauseTimer();
+    setShowPostSessionModal(true);
+  };
+  const saveSession = () => {
+    const id = 'ses-' + Date.now();
+    setSessions((prev) => [{ id, subjectId: timerSubjectId, chapter: timerChapter, topic: timerTopic, date: todayISO, durationMinutes: completedSessionDurationMin, ...postSessionForm }, ...prev]);
+    updateSubject(timerSubjectId, { totalMinutes: subj(timerSubjectId).totalMinutes + completedSessionDurationMin });
+    if (postSessionForm.needsReview) {
+      setReviewQueue((prev) => [{ id: 'rev-' + Date.now(), subjectId: timerSubjectId, topicTitle: timerTopic || 'ללא נושא', dueDate: addDaysISO(todayISO, 1), intervalLabel: 'יום אחרי הלמידה', reason: 'סומן בסיום סשן', completed: false }, ...prev]);
+    }
+    setPostSessionForm({ whatLearned: '', whatUnderstood: '', whatNotUnderstood: '', needsReview: false, nextTask: '' });
+    setShowPostSessionModal(false);
+    resetTimer();
+    showNotice('הסשן נשמר.');
+  };
+
+  // --- תרגול ---
+  const bank = SAMPLE_PRACTICE_BANK.filter((q) => practiceSubjectFilter === 'all' || q.subjectId === practiceSubjectFilter);
+  const curQ = bank[currentQuestionIdx % Math.max(1, bank.length)];
+  const submitAnswer = () => {
+    if (!curQ || !selectedAnswer) return;
+    const correct = selectedAnswer === curQ.correctAnswer;
+    setSubmittedAnswerFeedback({ correct });
+    setPracticeResults((prev) => [{ id: 'pr-' + Date.now(), questionId: curQ.id, subjectId: curQ.subjectId, correct, date: todayISO }, ...prev]);
+    if (!correct) setWrongQuestions((prev) => (prev.includes(curQ.id) ? prev : [...prev, curQ.id]));
+  };
+
+  const nextWorkday = (dateStr, n) => {
+    let d = addDaysISO(dateStr, n);
+    if (new Date(d + 'T00:00:00').getDay() === 6) d = addDaysISO(d, 1);
+    return d;
+  };
+
+  const taskRow = (t) => (
+    <div key={t.id} className="flex flex-wrap items-center gap-2 border-t border-slate-100 py-2 first:border-0">
+      <span className="w-2.5 h-2.5 rounded-full" style={{ background: subj(t.subjectId).color }} />
+      <span className={'font-medium ' + (t.status === 'הושלם' ? 'line-through opacity-60' : '')}>{subj(t.subjectId).name}: {t.title}</span>
+      <span className="text-xs text-slate-500">{t.date} · {t.durationMinutes} דק׳</span>
+      <span className="flex gap-1 flex-wrap mr-auto">
+        <select value={t.status} onChange={(e) => updateTask(t.id, { status: e.target.value })} className="border rounded-lg px-2 py-1 text-sm">{TASK_STATUSES.map((x) => <option key={x}>{x}</option>)}</select>
+        <button className="text-sm px-2 py-1 rounded-lg bg-slate-100" onClick={() => updateTask(t.id, { date: nextWorkday(t.date, 1), status: 'פתוחה' })}>דחה</button>
+        <button className="text-sm px-2 py-1 rounded-lg bg-slate-100" onClick={() => updateTask(t.id, { date: nextWorkday(t.date, 7), status: 'פתוחה' })}>לשבוע הבא</button>
+        <button className="text-sm px-2 py-1 rounded-lg bg-rose-50 text-rose-700" onClick={() => askConfirm('למחוק את המשימה?') && deleteTask(t.id)}>מחק</button>
+      </span>
+    </div>
+  );
+  const none = <p className="text-sm text-slate-500">אין פריטים.</p>;
+  const weekStart = addDaysISO(todayISO, -new Date(todayISO + 'T00:00:00').getDay());
+  const last7 = [6, 5, 4, 3, 2, 1, 0].map((n) => { const d = addDaysISO(todayISO, -n); return { day: d.slice(5), דקות: sessions.filter((x) => x.date === d).reduce((a, x) => a + x.durationMinutes, 0) }; });
+  const cls = 'border rounded-xl px-3 py-2 bg-white';
+  const btn = 'px-4 py-2 rounded-xl bg-indigo-600 text-white font-medium';
+  const sel = subjects.find((x) => x.id === selectedSubjectId) || subjects[0];
+  const dueReviews = reviewQueue.filter((r) => !r.completed && r.dueDate <= todayISO);
+
+  const views = {
+    dashboard: () => (
+      <div className="space-y-4">
+        <div><h2 className="text-2xl font-bold">שלום, {userProfile.name}</h2><p className="text-slate-500">{formatHebrewDate(todayISO)}</p></div>
+        <button onClick={() => setActiveTab('timer')} className="w-full rounded-2xl bg-indigo-600 text-white py-4 text-xl font-bold">מתחילים ללמוד</button>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[['הבחינה הקרובה', nearestExam.name + ' · ' + nearestExamDays + ' ימים'], ['דקות לימוד היום', todayMinutes], ['שעות השבוע', (weekMinutes / 60).toFixed(1) + ' מתוך ' + weeklyTargetHours], ['משימות פתוחות / הושלמו', openTasks.length + ' / ' + completedTasks.length]].map(([k, v]) => (
+            <div key={k} className="bg-white rounded-2xl border p-3"><div className="text-xs text-slate-500">{k}</div><div className="font-bold text-lg">{v}</div></div>
+          ))}
+        </div>
+        <div className="bg-indigo-50 rounded-2xl p-3 text-sm">{smartRecommendation}</div>
+        <Section title="משימות להיום">{todayTasks.length ? todayTasks.map(taskRow) : none}</Section>
+        {overdueTasks.length > 0 && <Section title="משימות באיחור">{overdueTasks.map(taskRow)}</Section>}
+        <Section title="הגיע הזמן לחזור על החומר">{dueReviews.length ? dueReviews.map((r) => (
+          <div key={r.id} className="flex items-center gap-2 py-1"><span>{subj(r.subjectId).name}: {r.topicTitle}</span><button className="mr-auto text-sm px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700" onClick={() => setReviewQueue((p) => p.map((x) => (x.id === r.id ? { ...x, completed: true } : x)))}>בוצע</button></div>
+        )) : none}</Section>
+        <Section title="המקצועות">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{subjects.map((x) => (
+            <button key={x.id} onClick={() => { setSelectedSubjectId(x.id); setActiveTab('subjects'); }} className="text-right rounded-xl border p-3 bg-white">
+              <div className="font-bold" style={{ color: x.color }}>{x.name}</div>
+              <div className="text-xs text-slate-500 mb-1">{daysUntilDate(x.examDate)} ימים</div>
+              <Progress value={x.learnedMaterialPct} color={x.color} /><div className="text-xs mt-1">נלמד {x.learnedMaterialPct}%</div>
+            </button>))}</div>
+        </Section>
+      </div>
+    ),
+    calendar: () => (
+      <div className="space-y-4">
+        <div className="flex gap-2 flex-wrap">{['שבועי', 'חודשי', 'משימות', 'בחינות'].map((v) => <button key={v} onClick={() => setCalendarView(v)} className={'px-3 py-1.5 rounded-xl ' + (calendarView === v ? 'bg-indigo-600 text-white' : 'bg-white border')}>{v}</button>)}<button className="px-3 py-1.5 rounded-xl bg-white border" onClick={handleReevaluateWeeklyPlan}>הערכה מחודשת של התוכנית</button></div>
+        <form onSubmit={handleAddTask} className="bg-white rounded-2xl border p-3 flex flex-wrap gap-2">
+          <input className={cls + ' flex-1 min-w-40'} placeholder="משימה חדשה" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} />
+          <select className={cls} value={newTaskSubjectId} onChange={(e) => setNewTaskSubjectId(e.target.value)}>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <input type="date" className={cls} value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} />
+          <input type="number" min="5" className={cls + ' w-24'} value={newTaskDuration} onChange={(e) => setNewTaskDuration(e.target.value)} />
+          <button className={btn}>הוסף</button>
+        </form>
+        {calendarView === 'שבועי' && [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = addDaysISO(weekStart, i); const dt = tasks.filter((t) => t.date === d); return (
+          <Section key={d} title={'יום ' + HEBREW_DAYS[i] + ' · ' + d + (d === todayISO ? ' · היום' : '')}>
+            {i === 6 ? <p className="text-sm text-slate-500">שבת — יום מנוחה</p> : <>
+              {(weeklyPlan[i] || []).map((p) => <p key={p.id} className="text-sm text-slate-600">תוכנית: {subj(p.subjectId).name} · {p.minutes} דק׳ ({p.note})</p>)}
+              {dt.map(taskRow)}</>}
+          </Section>); })}
+        {calendarView === 'חודשי' && <Section title={'משימות החודש ' + todayISO.slice(0, 7)}>{tasks.filter((t) => t.date.startsWith(todayISO.slice(0, 7))).sort((a, b) => a.date.localeCompare(b.date)).map(taskRow)}</Section>}
+        {calendarView === 'משימות' && <Section title="כל המשימות">{tasks.length ? [...tasks].sort((a, b) => a.date.localeCompare(b.date)).map(taskRow) : none}</Section>}
+        {calendarView === 'בחינות' && <Section title="מועדי הבחינות">{sortedByExam.map((x) => <p key={x.id} className="py-1"><b style={{ color: x.color }}>{x.name}</b> · {formatHebrewDate(x.examDate)} · עוד {daysUntilDate(x.examDate)} ימים</p>)}</Section>}
+      </div>
+    ),
+    subjects: () => {
+      const readiness = Math.round((sel.learnedMaterialPct + sel.masteryPct) / 2);
+      const nums = [['existingMaterialPct', 'חומר שקיים'], ['learnedMaterialPct', 'חומר שנלמד'], ['masteryPct', 'שליטה בחומר (הערכה עצמית)']];
+      return (
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap">{subjects.map((x) => <button key={x.id} onClick={() => setSelectedSubjectId(x.id)} className={'px-3 py-1.5 rounded-xl border ' + (x.id === sel.id ? 'text-white' : 'bg-white')} style={x.id === sel.id ? { background: x.color } : {}}>{x.name}</button>)}</div>
+          <Section title={sel.name + ' · בחינה בעוד ' + daysUntilDate(sel.examDate) + ' ימים'}>
+            <label className="text-sm">תאריך הבחינה (נתון פתיחה, ניתן לעריכה) <input type="date" className={cls + ' mr-2'} value={sel.examDate} onChange={(e) => updateSubject(sel.id, { examDate: e.target.value })} /></label>
+            <p className="text-sm text-slate-500 mt-2">שעות לימוד שהושקעו: {(sel.totalMinutes / 60).toFixed(1)} · רמת ידע: {sel.knowledgeLevel}</p>
+          </Section>
+          <Section title="ארבעה מדדים נפרדים">
+            {nums.map(([k, l]) => (
+              <div key={k} className="mb-2"><div className="flex justify-between text-sm"><span>{l}</span><b>{pctTxt(sel[k])}</b></div>
+                <input type="range" min="0" max="100" className="w-full" value={sel[k] ?? 0} onChange={(e) => updateSubject(sel.id, { [k]: Number(e.target.value) })} /></div>))}
+            <div className="bg-indigo-50 rounded-xl p-2 text-sm">מוכנות משוערת: <b>{readiness}%</b> (הערכה לפי נלמד ושליטה בלבד, לא ציון רשמי ולא הבטחה להצלחה)</div>
+          </Section>
+          <Section title="החומר שחסר לי">
+            <p className="text-sm mb-2">{sel.missingMaterial}</p>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sel.missingGotIt} onChange={(e) => updateSubject(sel.id, { missingGotIt: e.target.checked, missingDate: e.target.checked ? todayISO : '' })} /> החומר הושג {sel.missingDate && '(' + sel.missingDate + ')'}</label>
+            <input className={cls + ' w-full mt-2'} placeholder="מי אמור להעביר את החומר" value={sel.missingFromWho} onChange={(e) => updateSubject(sel.id, { missingFromWho: e.target.value })} />
+            <textarea className={cls + ' w-full mt-2'} placeholder="הערות" value={sel.missingNotes} onChange={(e) => updateSubject(sel.id, { missingNotes: e.target.value })} />
+          </Section>
+          <Section title="פרקים ונושאים">
+            {sel.chapters.length === 0 && <p className="text-sm text-slate-500">עוד לא הוגדרו פרקים. הוסיפי פרק ראשון לפי התוכנית של בית הספר.</p>}
+            {sel.chapters.map((ch) => (
+              <div key={ch.id} className="mb-3"><b>{ch.title}</b>
+                <Progress value={ch.topics.length ? Math.round(ch.topics.filter((t) => ['הסתיים', 'שולטת בחומר', 'מוכן לבחינה'].includes(t.status)).length / ch.topics.length * 100) : 0} color={sel.color} />
+                {ch.topics.map((tp) => (<div key={tp.id} className="flex items-center gap-2 py-1 text-sm"><span>{tp.title}</span>
+                  <select className="border rounded-lg px-2 py-1 mr-auto" value={tp.status} onChange={(e) => updateTopicInSubject(sel.id, ch.id, tp.id, { status: e.target.value })}>{TOPIC_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></div>))}
+                <div className="flex gap-2 mt-1"><input className={cls + ' flex-1'} placeholder="נושא חדש" value={newTopic[ch.id] || ''} onChange={(e) => setNewTopic({ ...newTopic, [ch.id]: e.target.value })} />
+                  <button className={btn} onClick={() => { addTopicToChapter(sel.id, ch.id, newTopic[ch.id] || ''); setNewTopic({ ...newTopic, [ch.id]: '' }); }}>הוסף</button></div>
+              </div>))}
+            <div className="flex gap-2"><input className={cls + ' flex-1'} placeholder="פרק חדש" value={newChapter} onChange={(e) => setNewChapter(e.target.value)} /><button className={btn} onClick={() => { addChapterToSubject(sel.id, newChapter); setNewChapter(''); }}>הוסף פרק</button></div>
+          </Section>
+          <button className={btn} onClick={() => { setTimerSubjectId(sel.id); setActiveTab('timer'); }}>ללמוד את הנושא הבא</button>
+        </div>
+      );
+    },
+    files: () => {
+      const list = files.filter((f) => (fileSubjectFilter === 'all' || f.subjectId === fileSubjectFilter) && f.name.includes(fileSearch));
+      return (
+        <div className="space-y-4">
+          <div className="bg-amber-50 rounded-2xl p-3 text-sm">שימי לב: בגרסה הנוכחית הקובץ זמין לצפייה רק עד לרענון הדף. שמירה קבועה בענן דורשת חיבור ל-Supabase Storage.</div>
+          <div className="flex gap-2 flex-wrap">
+            <select className={cls} value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)}>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+            <button className={btn} onClick={() => fileInputRef.current && fileInputRef.current.click()}>העלאת קבצים למקצוע</button>
+            <input className={cls} placeholder="חיפוש" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} />
+            <select className={cls} value={fileSubjectFilter} onChange={(e) => setFileSubjectFilter(e.target.value)}><option value="all">כל המקצועות</option>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          </div>
+          <Section title="מאגר חומרי הלימוד">{list.length ? list.map((f) => { const live = Number(f.id.split('-')[1]) >= sessionStart.current; return (
+            <div key={f.id} className="flex flex-wrap items-center gap-2 border-t py-2 first:border-0 text-sm"><b>{f.name}</b><span className="text-slate-500">{subj(f.subjectId).name} · {f.sizeKb} KB</span>
+              <span className="mr-auto flex gap-1">{live ? <a className="px-2 py-1 rounded-lg bg-slate-100" href={f.dataUrl} target="_blank" rel="noreferrer" download={f.name}>צפייה / הורדה</a> : <span className="text-slate-400">לא זמין אחרי רענון</span>}
+                <button className="px-2 py-1 rounded-lg bg-slate-100" onClick={() => { const n = window.prompt('שם חדש', f.name); if (n) setFiles((p) => p.map((x) => (x.id === f.id ? { ...x, name: n } : x))); }}>שנה שם</button>
+                <button className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700" onClick={() => askConfirm('למחוק את הקובץ?') && setFiles((p) => p.filter((x) => x.id !== f.id))}>מחק</button></span></div>); }) : none}</Section>
+        </div>
+      );
+    },
+    ai: () => (
+      <div className="space-y-3">
+        <div className="flex gap-2 flex-wrap"><select className={cls} value={aiSubjectId} onChange={(e) => setAiSubjectId(e.target.value)}>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <select className={cls} value={aiMode} onChange={(e) => setAiMode(e.target.value)}>{['לימוד', 'שאלות', 'תרגול', 'בדיקה', 'סיכום', 'הכנה לבחינה', 'חזרה'].map((m) => <option key={m}>{m}</option>)}</select></div>
+        <div className="space-y-2">{aiMessages.map((m, i) => <div key={i} className={'rounded-2xl p-3 whitespace-pre-wrap text-sm ' + (m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white border')}>{m.text}</div>)}</div>
+        <form onSubmit={handleSendAiMessage} className="flex gap-2"><input className={cls + ' flex-1'} placeholder="שאלי את המורה" value={aiInput} onChange={(e) => setAiInput(e.target.value)} /><button className={btn}>שלח</button></form>
+      </div>
+    ),
+    practice: () => (
+      <div className="space-y-3">
+        <select className={cls} value={practiceSubjectFilter} onChange={(e) => { setPracticeSubjectFilter(e.target.value); setCurrentQuestionIdx(0); setSelectedAnswer(''); setSubmittedAnswerFeedback(null); }}><option value="all">כל המקצועות</option>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        {curQ ? (
+          <Section title={subj(curQ.subjectId).name + ' · ' + curQ.type}>
+            <p className="text-xs text-amber-700 mb-2">שאלת דוגמה שנוצרה על ידי AI. אינה שאלה רשמית מבחינה קודמת.</p>
+            <p className="font-medium mb-2">{curQ.question}</p>
+            {curQ.options.map((o) => <button key={o} disabled={!!submittedAnswerFeedback} onClick={() => setSelectedAnswer(o)} className={'block w-full text-right rounded-xl border px-3 py-2 mb-2 ' + (selectedAnswer === o ? 'border-indigo-600 bg-indigo-50' : 'bg-white')}>{o}</button>)}
+            {!submittedAnswerFeedback ? <button className={btn} onClick={submitAnswer}>בדיקה</button> : (
+              <div className="space-y-2"><div className={'rounded-xl p-2 text-sm ' + (submittedAnswerFeedback.correct ? 'bg-emerald-50' : 'bg-rose-50')}>{submittedAnswerFeedback.correct ? 'נכון.' : 'לא נכון. התשובה: ' + curQ.correctAnswer}<br />{curQ.explanation}</div>
+                <button className={btn} onClick={() => { setCurrentQuestionIdx((i) => i + 1); setSelectedAnswer(''); setSubmittedAnswerFeedback(null); }}>השאלה הבאה</button></div>)}
+          </Section>) : <p className="text-sm text-slate-500">אין שאלות במקצוע הזה במאגר.</p>}
+        <Section title="היסטוריה">
+          <p className="text-sm">{practiceResults.length} תשובות · {practiceResults.length ? Math.round(practiceResults.filter((r) => r.correct).length / practiceResults.length * 100) : 0}% נכונות · {wrongQuestions.length} שאלות בחזרה</p>
+        </Section>
+      </div>
+    ),
+    timer: () => (
+      <div className="space-y-3">
+        <div className="flex gap-2 flex-wrap">
+          <select className={cls} value={timerSubjectId} onChange={(e) => setTimerSubjectId(e.target.value)}>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <input className={cls} placeholder="פרק" value={timerChapter} onChange={(e) => setTimerChapter(e.target.value)} />
+          <input className={cls} placeholder="נושא" value={timerTopic} onChange={(e) => setTimerTopic(e.target.value)} />
+        </div>
+        <div className="flex gap-2 flex-wrap">{[25, 45, 60, 90, 0].map((m) => <button key={m} onClick={() => { setTimerGoalMinutes(m); setPomodoroMode(false); }} className={'px-3 py-1.5 rounded-xl border ' + (!pomodoroMode && timerGoalMinutes === m ? 'bg-indigo-600 text-white' : 'bg-white')}>{m ? m + ' דק׳' : 'זמן חופשי'}</button>)}
+          <button onClick={() => setPomodoroMode(!pomodoroMode)} className={'px-3 py-1.5 rounded-xl border ' + (pomodoroMode ? 'bg-indigo-600 text-white' : 'bg-white')}>פומודורו 25/5</button></div>
+        <div className="text-center text-6xl font-bold tabular-nums py-6 bg-white rounded-2xl border" dir="ltr">{formatTimerClock(displayedTimerSeconds)}</div>
+        {pomodoroMode && displayedTimerSeconds === 0 && <div className="bg-amber-50 rounded-xl p-2 text-sm">הסתיים הבלוק. {pomodoroBreak ? 'חזרה ללימוד.' : 'זמן להפסקה של 5 דקות.'} <button className="underline" onClick={() => { setPomodoroBreak(!pomodoroBreak); resetTimer(); }}>המשך לבלוק הבא</button></div>}
+        <div className="flex gap-2 justify-center">{timerState.running ? <button className={btn} onClick={pauseTimer}>השהיה</button> : <button className={btn} onClick={startTimer}>{timerState.accumulatedMs ? 'המשך' : 'התחל'}</button>}
+          <button className="px-4 py-2 rounded-xl bg-white border" onClick={endTimer} disabled={!elapsedMs}>סיום ושמירה</button>
+          <button className="px-4 py-2 rounded-xl bg-white border" onClick={() => askConfirm('לאפס בלי לשמור?') && resetTimer()}>איפוס</button></div>
+        <p className="text-xs text-center text-slate-500">הזמן מחושב לפי חותמות זמן ולכן נשמר גם אחרי רענון.</p>
+        <Section title="היסטוריית סשנים">{sessions.length ? sessions.slice(0, 10).map((x) => <p key={x.id} className="text-sm py-1">{x.date} · {subj(x.subjectId).name} · {x.topic || 'ללא נושא'} · {x.durationMinutes} דק׳</p>) : none}</Section>
+        {showPostSessionModal && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl p-4 w-full max-w-md space-y-2">
+            <h3 className="font-bold">סיכום הסשן · {completedSessionDurationMin} דק׳</h3>
+            {[['whatLearned', 'מה למדתי?'], ['whatUnderstood', 'מה הבנתי?'], ['whatNotUnderstood', 'מה לא הבנתי?'], ['nextTask', 'מה המשימה הבאה?']].map(([k, l]) => <textarea key={k} className={cls + ' w-full'} placeholder={l} value={postSessionForm[k]} onChange={(e) => setPostSessionForm({ ...postSessionForm, [k]: e.target.value })} />)}
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={postSessionForm.needsReview} onChange={(e) => setPostSessionForm({ ...postSessionForm, needsReview: e.target.checked })} /> צריך לחזור על הנושא</label>
+            <button className={btn} onClick={saveSession}>שמירה</button></div></div>)}
+      </div>
+    ),
+    summaries: () => (
+      <div className="space-y-3">
+        <Section title="סיכום חדש (נכתב ידנית)">
+          <div className="space-y-2"><select className={cls} value={newSummary.subjectId} onChange={(e) => setNewSummary({ ...newSummary, subjectId: e.target.value })}>{subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+            <input className={cls + ' w-full'} placeholder="נושא" value={newSummary.topicTitle} onChange={(e) => setNewSummary({ ...newSummary, topicTitle: e.target.value })} />
+            <textarea className={cls + ' w-full min-h-24'} placeholder="הסיכום" value={newSummary.content} onChange={(e) => setNewSummary({ ...newSummary, content: e.target.value })} />
+            <button className={btn} onClick={() => { if (!newSummary.content.trim()) return; setSummaries((p) => [{ id: 'sum-' + Date.now(), ...newSummary, type: 'סיכום שלי', flashcards: [], createdAt: todayISO }, ...p]); setNewSummary({ ...newSummary, topicTitle: '', content: '' }); }}>שמירה</button></div>
+        </Section>
+        {summaries.map((x) => <Section key={x.id} title={subj(x.subjectId).name + ' · ' + x.topicTitle}><p className="text-sm whitespace-pre-wrap">{x.content}</p><button className="text-sm text-rose-700 mt-2" onClick={() => askConfirm('למחוק את הסיכום?') && setSummaries((p) => p.filter((y) => y.id !== x.id))}>מחק</button></Section>)}
+      </div>
+    ),
+    stats: () => (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{[['דקות היום', todayMinutes], ['שעות 7 ימים', (weekMinutes / 60).toFixed(1)], ['שעות החודש', (monthMinutes / 60).toFixed(1)], ['ימי לימוד', new Set(sessions.map((x) => x.date)).size]].map(([k, v]) => <div key={k} className="bg-white rounded-2xl border p-3"><div className="text-xs text-slate-500">{k}</div><div className="font-bold text-lg">{v}</div></div>)}</div>
+        <Section title="דקות לימוד ב-7 הימים האחרונים"><div style={{ height: 220 }} dir="ltr"><ResponsiveContainer width="100%" height="100%"><BarChart data={last7}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="day" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="דקות" fill="#4f46e5" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div></Section>
+        <Section title="שעות לפי מקצוע">{subjects.map((x) => <div key={x.id} className="mb-2"><div className="flex justify-between text-sm"><span>{x.name}</span><span>{(x.totalMinutes / 60).toFixed(1)} ש׳</span></div><Progress value={Math.min(100, x.totalMinutes / 6)} color={x.color} /></div>)}</Section>
+      </div>
+    ),
+    weekly: () => (
+      <div className="space-y-3">
+        <Section title="השבוע"><p>למדת {(weekMinutes / 60).toFixed(1)} שעות מתוך יעד של {weeklyTargetHours}. {weekMinutes >= weeklyTargetHours * 60 ? 'היעד הושג.' : 'היעד עדיין לא הושג.'}</p><p className="text-sm text-slate-500">משימות שלא הושלמו: {openTasks.length}</p></Section>
+        <Section title="אזור אישי">{[['feeling', 'איך הרגשתי השבוע?'], ['hardest', 'מה היה לי קשה?'], ['succeeded', 'במה הצלחתי?'], ['improve', 'מה אני רוצה לשפר?']].map(([k, l]) => <textarea key={k} className={cls + ' w-full mb-2'} placeholder={l} value={weeklyReflection[k]} onChange={(e) => setWeeklyReflection({ ...weeklyReflection, [k]: e.target.value })} />)}
+          <div className="flex gap-2"><button className={btn} onClick={() => { setWeeklyReports((p) => [{ id: 'wr-' + Date.now(), weekStart, minutes: weekMinutes, target: weeklyTargetHours * 60, reflection: weeklyReflection }, ...p]); setWeeklyReflection({ feeling: '', hardest: '', succeeded: '', improve: '' }); showNotice('הדוח נשמר.'); }}>שמירת דוח שבועי</button><button className="px-4 py-2 rounded-xl bg-white border" onClick={handleReevaluateWeeklyPlan}>תוכנית חדשה לשבוע</button></div></Section>
+        <Section title="דוחות שמורים">{weeklyReports.length ? weeklyReports.map((r) => <p key={r.id} className="text-sm py-1">שבוע מ-{r.weekStart}: {(r.minutes / 60).toFixed(1)} מתוך {(r.target / 60).toFixed(1)} שעות</p>) : none}</Section>
+      </div>
+    ),
+    settings: () => (
+      <div className="space-y-3">
+        <Section title="פרופיל ויעד"><div className="flex gap-2 flex-wrap"><input className={cls} value={userProfile.name} onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })} />
+          <label className="text-sm">יעד שבועי (שעות) <input type="number" min="1" className={cls + ' w-20 mr-1'} value={weeklyTargetHours} onChange={(e) => setWeeklyTargetHours(Number(e.target.value) || 1)} /></label></div></Section>
+        <Section title="תזכורות">{reminders.map((r) => <div key={r.id} className="flex items-center gap-2 py-1 text-sm"><input type="checkbox" checked={r.enabled} onChange={(e) => setReminders((p) => p.map((x) => (x.id === r.id ? { ...x, enabled: e.target.checked } : x)))} /><span>{r.type}</span><input type="time" className="border rounded-lg px-2 mr-auto" value={r.time} onChange={(e) => setReminders((p) => p.map((x) => (x.id === r.id ? { ...x, time: e.target.value } : x)))} /></div>)}
+          <button className="px-3 py-1.5 rounded-xl bg-white border mt-2" onClick={() => ('Notification' in window ? Notification.requestPermission().then((r) => showNotice('הרשאת התראות: ' + r)) : showNotice('הדפדפן לא תומך בהתראות.'))}>אישור התראות בדפדפן</button>
+          <p className="text-xs text-slate-500 mt-1">התזכורות נשמרות כהגדרות. שליחה בפועל כשהאפליקציה סגורה דורשת שירות Push בשרת.</p></Section>
+        <Section title="חיבורים"><p className="text-sm text-slate-500 mb-2">ענן (Supabase): לא מחובר. הנתונים נשמרים בדפדפן הזה בלבד.</p>
+          <input className={cls + ' w-full'} placeholder="כתובת שרת מאובטח למורה ה-AI (Netlify Function)" value={userProfile.aiEndpoint} onChange={(e) => setUserProfile({ ...userProfile, aiEndpoint: e.target.value })} /></Section>
+      </div>
+    )
+  };
+
+  return (
+    <div className="min-h-screen" dir="rtl">
+      <header className="sticky top-0 z-40 bg-white border-b" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+        <div className="max-w-5xl mx-auto px-3 py-2 font-bold">מערכת לימודים חכמה · בגרויות 2027</div>
+        <nav className="max-w-5xl mx-auto flex gap-1 overflow-x-auto px-2 pb-2">
+          {NAV.map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setActiveTab(id)} className={'flex items-center gap-1 whitespace-nowrap px-3 py-1.5 rounded-xl text-sm ' + (activeTab === id ? 'bg-indigo-600 text-white' : 'bg-slate-100')}><Icon size={16} />{label}</button>
+          ))}
+        </nav>
+      </header>
+      {statusBanner && <div className="max-w-5xl mx-auto mt-2 mx-3 bg-emerald-50 border border-emerald-200 rounded-xl p-2 text-sm">{statusBanner}</div>}
+      <main className="max-w-5xl mx-auto p-3 pb-24">{views[activeTab]()}</main>
+    </div>
+  );
+}
